@@ -449,10 +449,10 @@ class BIACase:
     def get_city(self):
         return "Unknown"
 
-    def get_based_violence(self) -> List[str]:
+    def get_based_persecution(self) -> List[str]:
         """
         Returns a list of keyword buckets which indicate certain types of
-        violence mentioned in a case, current buckets are: Violence, Family,
+        harm experienced mentioned in a case, current buckets are: Violence, Family,
         Gender, and Gangs. These keywords can be changed in their respective
         lists, and an item being present in the list means that the given type
         of violence is mentioned in the document.

@@ -66,9 +66,9 @@
 - **Returns:** String
 - **Current Status:** Unknown. Contact Alex Krieger
 
-### Based Violence
-- **Function name: **`get_protected_grounds()`
-- **Details:** Returns type of violence the applicant experienced if they experienced violence. Looks for words like *'abduct', 'abuse', 'assassinate', 'assault', 'coerce', 'exploit', 'fear', 'harm', 'hurt', 'kidnap', 'kill', 'murder', 'persecute', 'rape', 'scare', 'shoot', 'suffer', 'threat', 'torture'* and returns them if they exist with the document
+### Type of harm experienced
+- **Function name: **`get_based_persecution()`
+- **Details:** Returns type of persecution the applicant experienced. Looks for words like *'abduct', 'abuse', 'assassinate', 'assault', 'coerce', 'exploit', 'fear', 'harm', 'hurt', 'kidnap', 'kill', 'murder', 'persecute', 'rape', 'scare', 'shoot', 'suffer', 'threat', 'torture'* and returns them if they exist with the document
 - **Returns:** String
 - **Current Status:** Unknown
 
