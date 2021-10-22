@@ -7,7 +7,6 @@ from spacy.tokens import Doc, Span
 from spacy.matcher import Matcher, PhraseMatcher
 from typing import List, Iterator
 
-
 nlp = load("en_core_web_sm")
 
 
@@ -18,7 +17,7 @@ def make_fields(uuid, file) -> dict:
     pages = convert_from_bytes(file, dpi=90)
     text = map(pytesseract.image_to_string, pages)
     string = " ".join(text)
-    case_data = BIACase(uuid, string).to_dict()
+    case_data = IJCase(uuid, string).to_dict()
     return case_data
 
 
@@ -106,9 +105,21 @@ def in_parenthetical(match):
     return False
 
 
-class BIACase:
+def multi_prot_grounds_fix(match):
     """
-    The following defines the BIACase Class. When receiving a court doc,
+    Checks whether all protected grounds are listed together (when judge quotes law),
+    and removes any returned protected grounds if all protected grounds are part of the judge quoting the law
+    used in protected grounds in order to improve accuracy
+    """
+    prohibited_str = 'race, religion, nationality, membership in a particular social group, or political opinion.'
+    sent_match = match.sent.text
+
+    return prohibited_str in sent_match
+
+
+class IJCase:
+    """
+    The following defines the IJCase Class. When receiving a court doc,
     we use this to extract info for the desired fields/info
     that are scraped from the text of the court docs.
     """
@@ -117,7 +128,7 @@ class BIACase:
 
     def __init__(self, uuid: str, text: str):
         """
-        • Input will be text from a BIA case pdf file, after the pdf has
+        • Input will be text from a IJ (immigration judge) case pdf file, after the pdf has
         been converted from PDF to text.
         • Scraping works utilizing spaCy, tokenizing the text, and iterating
         token by token searching for matching keywords.
@@ -158,7 +169,7 @@ class BIACase:
         countries = sorted(gc.get_countries_by_names().keys())
         # remove U.S. and its territories from countries
         countries = set(countries)
-        non_matches = {"American Samoa", "Guam", "Northern Mariana Islands", "Puerto Rico", 
+        non_matches = {"American Samoa", "Guam", "Northern Mariana Islands", "Puerto Rico",
                        "United States", "United States Minor Outlying Islands", "U.S. Virgin Islands"}
         countries = countries.difference(non_matches)
 
@@ -208,7 +219,7 @@ class BIACase:
 
         This is the code to return hearing date 
         # get_ents function only use in this function
-        # can be deleted from BIA class if not use 
+        # can be deleted from IJCase class if not use
 
         dates = map(str, self.get_ents(['DATE']))
         for s in dates:
@@ -216,8 +227,7 @@ class BIACase:
                 return s
         """
         primary_pattern = [
-            [{"LOWER": "date"}, {"LOWER": "of"}, 
-            {"LOWER": "this"}, {"LOWER": "notice"}]
+            [{"LOWER": "date"}, {"LOWER": ":"}]
         ]
         # instantiate a list of pattern matches
         spans = similar(self.doc, primary_pattern)
@@ -316,7 +326,7 @@ class BIACase:
         ]
 
         religions = ['christianity', 'christian', 'islam', 'atheist',
-                     'hinduism', 'buddihism', 'jewish', 'judaism', 'islamist',
+                     'hinduism', 'buddhism', 'jewish', 'judaism', 'islamist',
                      'sunni', 'shia', 'muslim', 'buddhist', 'atheists', 'jew',
                      'hindu', 'atheism']
 
@@ -330,28 +340,30 @@ class BIACase:
         potential_grounds = similar(self.doc, pattern)
 
         for match in potential_grounds:
+            # remove 'nationality act' from potential_grounds
+            match_lower = match.text.lower()
+            if not in_parenthetical(match) and not multi_prot_grounds_fix(match):
+                if match_lower == 'nationality' \
+                        and 'act' not in match.sent.text.lower() \
+                        and 'nationality' not in confirmed_matches:
+                    confirmed_matches.append('nationality')
+
+                # check for specified religion, replace with 'religion'
+                elif match_lower in religions:
+                    if 'religion' not in confirmed_matches:
+                        confirmed_matches.append('religion')
+
+                elif match_lower in politicals:
+                    if 'political' not in confirmed_matches:
+                        confirmed_matches.append('political')
+
+                else:
+                    if match_lower not in confirmed_matches:
+                        confirmed_matches.append(match_lower)
             # skip matches that appear in parenthesis, the opinion is probably
             # just quoting a list of all the protected grounds in the statute
-            if in_parenthetical(match):
-                continue
-            # remove 'nationality act' from potential_grounds
-            if match.text.lower() == 'nationality' \
-                    and 'act' not in match.sent.text.lower() \
-                    and 'nationality' not in confirmed_matches:
-                confirmed_matches.append('nationality')
+            # skip matches where match appears in a string of all 5 protected grounds
 
-            # check for specified religion, replace with 'religion'
-            elif match.text.lower() in religions:
-                if 'religion' not in confirmed_matches:
-                    confirmed_matches.append('religion')
-
-            elif match.text.lower() in politicals:
-                if 'political' not in confirmed_matches:
-                    confirmed_matches.append('political')
-
-            else:
-                if match.text.lower() not in confirmed_matches:
-                    confirmed_matches.append(match.text.lower())
         return confirmed_matches
 
     def get_application(self) -> str:
@@ -373,19 +385,19 @@ class BIACase:
         start = 0
 
         for token in self.doc:
-            if token.text == 'APPLICATION':
+            if token.text == 'APPLICATIONS':
                 start += token.idx
                 break
 
-        outcome = set()
+        application = set()
         for k, v in app_types.items():
             for x in v:
                 if x in self.doc.text[start: start + 300]:
                     if k == "Other":
-                        outcome.add(x)
+                        application.add(x)
                     else:
-                        outcome.add(k)
-        return "; ".join(list(outcome))
+                        application.add(k)
+        return "; ".join(list(application))
 
     def get_outcome(self) -> str:
         """
@@ -393,17 +405,13 @@ class BIACase:
         at the end of the document.
         """
         outcomes = {
-            'remanded',
-            'reversal',
             'dismissed',
-            'sustained',
             'terminated',
             'granted',
             'denied',
-            'returned',
         }
         for token in self.doc:
-            if token.text in {"ORDER", 'ORDERED'}:
+            if token.text in {"ORDER", 'ORDERED', 'ORDERS'}:
                 start, stop = token.sent.start, token.sent.end + 280
                 outcome = self.doc[start:stop].text.strip().replace("\n", " ")
                 outcome = outcome.split('.')[0].lower()
@@ -420,7 +428,7 @@ class BIACase:
         Returns: The name of the state
         """
         """
-        Previous code to find state defeciency
+        Previous code to find state deficiency
         for place in self.doc:
             place = place.text
             if place in StateLookup.states.keys():
@@ -430,8 +438,7 @@ class BIACase:
         return "Unknown"
         """
         primary_pattern = [
-            [{"LOWER": "file"}, {"LOWER": ":"}],
-            [{"LOWER": "files"}, {"LOWER": ":"}]
+            [{"LOWER": "immigration"}, {"LOWER": "court"}]
         ]
         # instantiate a list of pattern matches
         spans = similar(self.doc, primary_pattern)
@@ -446,7 +453,7 @@ class BIACase:
                 return state
             except:
                 return "Unknown"
-            
+
         return "Unknown"
 
     def get_city(self) -> str:
@@ -458,8 +465,7 @@ class BIACase:
         Returns: The name of the city
         """
         primary_pattern = [
-            [{"LOWER": "file"}, {"LOWER": ":"}],
-            [{"LOWER": "files"}, {"LOWER": ":"}]
+            [{"LOWER": "immigration"}, {"LOWER": "court"}]
         ]
         # instantiate a list of pattern matches
         spans = similar(self.doc, primary_pattern)
@@ -474,7 +480,7 @@ class BIACase:
                 return city
             except:
                 return "Unknown"
-                
+
         return "Unknown"
 
     def get_based_violence(self) -> List[str]:
@@ -523,7 +529,7 @@ class BIACase:
 
         # Printing full_text[judge_match2[0][1]:judge_match2[0][2]] gives word
         # it matches on, can put in the [0] a for loop to see all matches
-        terms_list = []
+
         if len(violence_match) != 0:
             terms_list.append('Violent')
         if len(family_match) != 0:
@@ -551,7 +557,7 @@ class BIACase:
                         [{"LOWER": "court"}, {"LOWER": "finds"},
                          {"LOWER": "respondent"}, {"LOWER": "testimony"},
                          {"LOWER": "credible"}],
-                        [{"LOWER": "court"}, {"LOWER": "finds"}, 
+                        [{"LOWER": "court"}, {"LOWER": "finds"},
                          {"LOWER": "respondent"}, {"LOWER": "credible"}]]
 
         medium_scope = [[{"LOWER": "credible"}, {"LOWER": "witness"}],
@@ -562,10 +568,10 @@ class BIACase:
                         [{"LOWER": "testimony"}, {"LOWER": "credible"}],
                         [{"LOWER": "testimony"}, {"LOWER": "consistent"}]]
 
-        wide_scope = [[{"LEMMA": {"IN": ["coherent", 
-                                        "possible", 
-                                        "credible", 
-                                        "consistent"]}}]]
+        wide_scope = [[{"LEMMA": {"IN": ["coherent",
+                                         "possible",
+                                         "credible",
+                                         "consistent"]}}]]
 
         similar_narrow = similar(self.doc, narrow_scope)
         similar_medium = similar(self.doc, medium_scope)

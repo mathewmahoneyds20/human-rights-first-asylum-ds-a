@@ -21,13 +21,13 @@ from dotenv import load_dotenv
 
 from app.db_ops import insert_case
 from app.ocr import make_fields
-from app.visualizations import get_judge_vis, get_judge_feature_vis
+from app.visualizations import get_judge_vis, get_judge_feature_vis, vis_national
 
 app = FastAPI(
     title="DS API for HRF Asylum",
     description="PDF OCR",
     docs_url="/",
-    version="0.36.0",
+    version="0.39.1",
 )
 
 load_dotenv()
@@ -79,3 +79,11 @@ async def outcome_by_judge_and_feature(judge_id: int, feature: str):
     Endpoint for visualizations on outcome by protected grounds by judge using plotly
     """
     return json.loads(get_judge_feature_vis(judge_id, feature).to_json())
+
+
+@app.get("/vis/national/")
+async def national():
+    """
+    Endpoint for home page visualization of national-level data
+    """
+    return json.loads(vis_national().to_json())
